@@ -56,13 +56,14 @@ flatten ls =
 -- and must start with a letter when specifying the identity of a
 -- machine (non-terminal Ptp) or of system.
 isAlpha :: Char -> Bool
-isAlpha c = c € ([x | x <- ['0'.. 'z'] ++ ['/', '$', '#', '&', '~', '\"'],
-                  not (x € ['@', '.', ',', ';', ':', '(', ')', '[', ']', '{', '}', '|', '+', '*', '!', '?', '-', '%', '§'])
+isAlpha c = c € ([x | x <- ['0' .. 'z'] ++ ['/', '$', '#', '&', '~', '\"'],
+                  not (x € ['@', '.', ',', ';', ':', '(', ')', '[', ']', '{', '}',
+                            '|', '+', '*', '!', '?', '-', '%', '§'])
                  ])
 
 -- Names of participants have to begin with a letter
 isPtp :: String -> Bool
-isPtp s = (L.null s) || ( ((head s) € (['a'.. 'z'] ++ ['A'.. 'Z'])) && (L.all isAlpha (tail s)) )
+isPtp s = ((head s) € (['a'.. 'z'] ++ ['A'.. 'Z'])) && (L.all isAlpha (tail s))
 
 -- PRE:  
 -- POST: -1 if e not in l, otherwise first position of e in the list plus the offset o
