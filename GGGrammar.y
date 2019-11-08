@@ -4,46 +4,26 @@
 
 -- A very basic grammar and parser for the textual editing of global
 -- graphs. The grammar is a revised version of the one used in the
--- ICE16 paper with the extensions for reversibility-enabled graphs of
--- DAIS 18
+-- ICE16
 --
 --    G ::= (o)
 --       |  P -> P : M
 --       |  P => P, ..., P : M
 --	 |  G | G
---       |  sel { Brc }
---       |  sel P { Brc }
---       |  branch { Brc }
---       |  branch P { Brc }
 --       |  G ; G
---       |  * G @ P
---       |  repeat { G unless guard }
---       |  repeat P { G unless guard }
+--       |  choose exp @ P { Brc }
+--       |  repeat { G } until exp @ P
 --       |  { G }
---       |  ( G )
 --
---    Brc   ::= G | G unless guard | B + B
+--    Brc   ::= tag :: G | tag :: G + Brc
 --
---    guard ::= P % str | P % str, guard
---
--- where '(o)' has a special role: it marks a point where the selector
--- of a loop may exit the iteration. Guards are used only for the
--- reversible semantics and the string in them is supposed to be some
--- valid Erlang code. Likewise for the 'sel' construct, which
--- generalises the choice for the reversible semantics. Notice that
--- the 'sel' and the 'branch' constructs have the same semantics and
--- allow to specify the selector of the branch (to simplify the
--- realisation of projections on Erlang, the selector is mandatory for
--- REGs and optional otherwise). The clause 'unless guard' is optional
--- in branching and iteration.
---
--- The parser for the forward assumes the following equalities
---
---   sel P { Gn unless g1 + ... + Gn unless gn } = G1 + ... + Gn      for all guards g1, ..., gn 
---   repeat P {G unless g}                       = * G @ P            for all guards g
---
--- The binary operators |, +, and ; are given in ascending order of
--- precedence.
+-- where the operators are in ascending order of precedence and exp is
+-- of the form 'f(s1 ... sh)' represents the use of a function 'f' to
+-- be defined in the target language taking h parameters of sort
+-- s1,...,sh and such that the function returns
+--    - a boolean in the 'repeat' construct or
+--    - the value of an enumerated type enum(t1,...,tn) in choose
+--      f(s1 ... sh) @ P { t1 :: G1 + ... + tn :: Gn }
 --
 -- Note: strings are made of the following characters
 --
@@ -72,7 +52,6 @@
 -- messages.
 --
 -- TODO: improve parseError
--- TODO: add line numbers
 --
 {
 module GGParser where
@@ -96,24 +75,21 @@ import CFSM
   '=>'	        { TokenMAr      }
   '|'	        { TokenPar      }
   '+'	        { TokenBra      }
-  '%'	        { TokenGrd      }
   '*'	        { TokenSta      }
   ';'	        { TokenSeq      }
   '@'   	{ TokenUnt      }
   ':'	        { TokenSec      }
-  '('	        { TokenBro      }
-  ')'	        { TokenBrc      }
+  '('	        { TokenFno      }
+  ')'	        { TokenFnc      }
   ','	        { TokenCom      }
   '{'	        { TokenCurlyo   }
   '}'	        { TokenCurlyc   }
-  'sel'         { TokenSel      }
-  'branch'      { TokenSel      }
+  'choose'      { TokenSel      }
   'repeat'      { TokenRep      }
-  'unless'      { TokenUnl      }
+  'until'       { TokenUnt      }
 
 %right '|'
 %right '+'
-%right '%'
 %right ';'
 %right ','
 
@@ -129,7 +105,7 @@ G : B                                   { $1 }
 
 B :: { (GG, Set Ptp) }
 B : S                                   { $1 }
-  | choiceop '{' Br '+' Bs '}'        	{ (Bra (S.fromList $
+  | choiceop '{' S '+' Bs '}'        	{ (Bra (S.fromList $
                                                  (L.foldr (\g -> \l -> l ++ (checkToken TokenBra g))
                                                    []
                                                    (L.map fst ([$3] ++ $5))
@@ -137,28 +113,10 @@ B : S                                   { $1 }
                                                ),
                                             ptpsBranches ([$3] ++ $5))
                                         }
-  | choiceop str '{' Br '+' Bs '}'	{ (Bra (S.fromList $
-                                                 (L.foldr (\g -> \l -> l ++ (checkToken TokenBra g))
-                                                   []
-                                                   (L.map fst ([$4] ++ $6))
-                                                 )
-                                               ),
-                                            ptpsBranches ([$4] ++ $6))
-                                        }
-
-
-choiceop : 'sel'        {}
-         | 'branch'     {}
-
 
 Bs :: { [((GG, Set Ptp), M.Map String String)] }
-Bs : Br                                 { [ $1 ] }
-   | Br '+' Bs                          { [$1] ++ $3 }
-
-
-Br :: { ((GG, Set Ptp), M.Map String String) }
-Br : S                                  { ($1, M.empty) }
-   | S 'unless' guard                   { checkGuard $1 $3 }
+Bs : S                                 { [ $1 ] }
+   | S '+' Bs                          { [$1] ++ $3 }
 
 
 S :: { (GG, Set Ptp) }
@@ -189,31 +147,13 @@ Blk : str '->' str ':' str              { case ((isPtp $1), (isPtp $3), not($1 =
                                             (True,  False) -> myErr ($1 ++ " must be in " ++ (show $3))
                                             (False, _)     -> myErr ("Bad name " ++ $1)
                                         }
-  | '*' G '@' str                       {
-      			        	  case ((isPtp $4), (S.member $4 (snd $2))) of
-                                            (True, True)  -> (Rep (fst $2) $4 , S.union (S.singleton $4) (snd $2))
-                                            (False, _)    -> myErr ("Bad name " ++ $4)
-                                            (True, False) -> myErr ("Participant " ++ $4 ++ " is not among the loop's participants: " ++ (show $ toList $ snd $2))
-                                        }
-  | 'repeat' str '{' G '}'              {
-              				  case ((isPtp $2), (S.member $2 (snd $4))) of
-                                            (True, True)  -> (Rep (fst $4) $2 , S.union (S.singleton $2) (snd $4))
-                                            (False, _)    -> myErr ("Bad name " ++ $2)
-                                            (True, False) -> myErr ("Participant " ++ $2 ++ " is not among the loop's participants: " ++ (show $ toList $ snd $4))
-                                        }
   | 'repeat' str '{' G 'unless' guard '}'    {
                                                case ((isPtp $2), (S.member $2 (snd $4))) of
                                                  (True, True)  -> (Rep (fst $4) $2 , S.union (S.singleton $2) (snd $4))
                                                  (False, _)    -> myErr ("Bad name " ++ $2)
                                                  (True, False) -> myErr ("Participant " ++ $2 ++ " is not among the loop's participants: " ++ (show $ toList $ snd $4))
                                              }
-  | '(' G ')'                           { $2 }    -- this is for backward compatibility
   | '{' G '}'                           { $2 }
-
-
-guard :: { M.Map String String }
-guard : str '%' str             { M.insert $1 $3 M.empty }
-      | str '%' str ',' guard   { M.insert $1 $3 $5 }
 
 
 ptps :: { [String] }
@@ -225,10 +165,18 @@ ptps : str                      { if (isPtp $1) then [$1] else myErr ("Bad name 
                                   else myErr ("Bad name " ++ $1)
                                 }
 
+exp : str '(' ')'
+    | str '(' sorts ')'
+
+sorts : str        { [$1] }
+      | str sorts  { $1 : $2 }
 
 {
-data Token =
-  TokenStr String
+type Tag = String
+type Sort = String
+type Funs = M.Map Ptp [(String, [Sort], Set Tag)]
+
+data Token = TokenStr String
   | TokenPtps [Ptp]
   | TokenEmp
   | TokenArr
