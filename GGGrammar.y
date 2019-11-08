@@ -95,42 +95,30 @@ import CFSM
 
 %%
 
-G :: { (GG, Set Ptp) }
-G : B                                   { $1 }
-  | B '|' G  	     	        	{ (Par ((checkToken TokenPar $1)
+G :: { GGparse }
+G : Blk                                 { $1 }
+  | Blk '|' G  	     	        	{ (Par ((checkToken TokenPar $1)
                                                 ++ (checkToken TokenPar $3)),
                                             S.union (snd $1) (snd $3))
                                         }
-
-
-B :: { (GG, Set Ptp) }
-B : S                                   { $1 }
-  | choiceop '{' S '+' Bs '}'        	{ (Bra (S.fromList $
-                                                 (L.foldr (\g -> \l -> l ++ (checkToken TokenBra g))
-                                                   []
-                                                   (L.map fst ([$3] ++ $5))
-                                                 )
-                                               ),
-                                            ptpsBranches ([$3] ++ $5))
-                                        }
-
-Bs :: { [((GG, Set Ptp), M.Map String String)] }
-Bs : S                                 { [ $1 ] }
-   | S '+' Bs                          { [$1] ++ $3 }
-
-
-S :: { (GG, Set Ptp) }
-S : '(o)'                               { (Emp, S.empty) }
-  | Blk                                 { $1 }
-  | B ';' B                           { (Seq ((checkToken TokenSeq $1)
+  | Blk ';' G                           { (Seq ((checkToken TokenSeq $1)
                                                  ++ (checkToken TokenSeq $3)),
                                             S.union (snd $1) (snd $3))
                                         }
 
+Branch :: M.Map Tag GGparse
+Branch : str '::' G                    { M.fromList ($1, $3) }
 
+Branches :: M.Map Tag (GGparse, M.Map String String)
+Branches : Branch                                      { $1 }
+   | Branch '+' Branches                               { case M.keys $1 intesects M.keys $3 of
+                                                           True -> myerr()
+                                                           _ -> M.merge $1 $3
+                                                       }
 
-Blk :: { (GG, Set Ptp) }
-Blk : str '->' str ':' str              { case ((isPtp $1), (isPtp $3), not($1 == $3)) of
+Blk :: { GGparse }
+Blk : '(o)'                           { (Emp, S.empty, M.empty) }
+  | str '->' str ':' str              { case ((isPtp $1), (isPtp $3), not($1 == $3)) of
         				    (True, True, True)   -> ((Act ($1 , $3) $5), S.fromList [$1,$3])
 	        			    (True, False, True)  -> myErr ("Bad name " ++ $3)
 		        		    (True, True, False)  -> myErr ("A sender " ++ $3 ++ " cannot be also the receiver in an interaction")
@@ -147,7 +135,15 @@ Blk : str '->' str ':' str              { case ((isPtp $1), (isPtp $3), not($1 =
                                             (True,  False) -> myErr ($1 ++ " must be in " ++ (show $3))
                                             (False, _)     -> myErr ("Bad name " ++ $1)
                                         }
-  | 'repeat' str '{' G 'unless' guard '}'    {
+  | 'choose' exp '@' str '{' S '+' Bs '}'        	{ (Bra (S.fromList $
+                                                 (L.foldr (\g -> \l -> l ++ (checkToken TokenBra g))
+                                                   []
+                                                   (L.map fst ([$3] ++ $5))
+                                                 )
+                                               ),
+                                            ptpsBranches ([$3] ++ $5))
+                                        }
+  | 'repeat' '{' G '}' 'until' exp '@' str    {
                                                case ((isPtp $2), (S.member $2 (snd $4))) of
                                                  (True, True)  -> (Rep (fst $4) $2 , S.union (S.singleton $2) (snd $4))
                                                  (False, _)    -> myErr ("Bad name " ++ $2)
@@ -175,6 +171,7 @@ sorts : str        { [$1] }
 type Tag = String
 type Sort = String
 type Funs = M.Map Ptp [(String, [Sort], Set Tag)]
+type GGparse = (GG, Set Ptp, Funs)
 
 data Token = TokenStr String
   | TokenPtps [Ptp]
