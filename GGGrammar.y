@@ -48,7 +48,7 @@
 -- Note: strings are made of the following characters
 --
 --   0123456789
---   <=>\\^_`\167/$#&~,.
+--   \_$#&~
 --   ABCDEFGHIJKLMNOPQRSTUVWXYZ
 --   abcdefghijklmnopqrstuvwxyz
 --
@@ -57,7 +57,7 @@
 --
 -- Reserved characters not usable in strings are:
 --
---   @ . , ; : ( ) [ ] { } | + * ! ? - % §
+--   @ . , ; : ( ) [ ] { } | + - * / ^ ! ? % §
 --
 -- Text enclosed by '[' and ']' is treated as multi-line comment and,
 -- after '..', so is the rest of a line.
