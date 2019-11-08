@@ -119,7 +119,7 @@ Branches : Branch                                      { $1 }
 Blk :: { GGparse }
 Blk : '(o)'                           { (Emp, S.empty, M.empty) }
   | str '->' str ':' str              { case ((isPtp $1), (isPtp $3), not($1 == $3)) of
-        				    (True, True, True)   -> ((Act ($1 , $3) $5), S.fromList [$1,$3])
+        				    (True, True, True)   -> ((Act ($1 , $3) $5), S.fromList [$1,$3], M.empty)
 	        			    (True, False, True)  -> myErr ("Bad name " ++ $3)
 		        		    (True, True, False)  -> myErr ("A sender " ++ $3 ++ " cannot be also the receiver in an interaction")
 			        	    (_, False, False)    -> myErr ("Whaaat??? Sender " ++ $1 ++ " and receiver " ++ $3 ++ " are equal AND different!!!")
@@ -130,8 +130,8 @@ Blk : '(o)'                           { (Emp, S.empty, M.empty) }
   | str '=>' ptps ':' str               { case ((isPtp $1), not(L.elem $1 $3)) of
                                             (True,  True)  -> case $3 of
                                                                 []   -> myErr ($1 ++ " cannot be empty") -- ($1 ++ " => " ++ "[]")
-                                                                s:[] -> ((Act ($1 , s) $5), S.fromList([$1,s]))
-                                                                _    -> (Par (L.map (\s -> (Act ($1 , s) $5)) $3),S.fromList($1:$3))
+                                                                s:[] -> ((Act ($1 , s) $5), S.fromList([$1,s]), M.empty)
+                                                                _    -> (Par (L.map (\s -> (Act ($1 , s) $5)) $3), S.fromList($1:$3), M.empty)
                                             (True,  False) -> myErr ($1 ++ " must be in " ++ (show $3))
                                             (False, _)     -> myErr ("Bad name " ++ $1)
                                         }
