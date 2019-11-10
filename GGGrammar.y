@@ -53,20 +53,20 @@
 --
 -- TODO: improve parseError
 --
-{
+{ -- Haskell header of the parser
 module GGParser where
 import SyntacticGlobalGraphs
 import ErlanGG
 import Data.Set as S (empty, singleton, intersection, union, unions, difference, fromList, difference, toList, member, foldr, Set)
 import Data.List as L
-import qualified Data.Map as M (keys, empty, insert, union, Map)
+import qualified Data.Map as M (keys, empty, insert, Map, fromList, elems)
 import Misc
 import CFSM
 }
 
-%name gggrammar
-%tokentype { Token }
-%error { parseError }
+%name gggrammar       -- parsing function
+%tokentype { Token }  -- which has type [Token] -> GGParse
+%error { parseError } -- and invokes parseError if parsing errors occur
 
 %token
   str	        { TokenStr $$   }
@@ -75,10 +75,10 @@ import CFSM
   '=>'	        { TokenMAr      }
   '|'	        { TokenPar      }
   '+'	        { TokenBra      }
-  '*'	        { TokenSta      }
   ';'	        { TokenSeq      }
   '@'   	{ TokenUnt      }
   ':'	        { TokenSec      }
+  '::'	        { TokenTag      }
   '('	        { TokenFno      }
   ')'	        { TokenFnc      }
   ','	        { TokenCom      }
@@ -93,27 +93,27 @@ import CFSM
 %right ';'
 %right ','
 
-%%
+%%  -- Pointless line customary in yacc
 
-G :: GGparse
+G :: { GGparse }
 G : Blk                                 { $1 }
-  | Blk '|' G  	     	        	{ (Par ((checkToken TokenPar $1)
+  | G '|' Blk  	     	        	{ (Par ((checkToken TokenPar $1)
                                                 ++ (checkToken TokenPar $3)),
                                             S.union (snd $1) (snd $3))
                                         }
-  | Blk ';' G                           { (Seq ((checkToken TokenSeq $1)
+  | G ';' Blk                           { (Seq ((checkToken TokenSeq $1)
                                                  ++ (checkToken TokenSeq $3)),
                                             S.union (snd $1) (snd $3))
                                         }
 
-Branch :: M.Map Tag GGparse
+Branch :: { M.Map Tag GGparse }
 Branch : str '::' G                    { M.fromList ($1, $3) }
 
-Branches :: M.Map Tag GGparse
+Branches :: { M.Map Tag GGparse }
 Branches : Branch                      { $1 }
-         | Branch '+' Branches         { sumBranches $1 $3 }
+         | Branches '+' Branch         { sumBranches $1 $3 }
 
-Blk :: GGparse
+Blk :: { GGparse }
 Blk : '(o)'                                { (0, Emp, S.empty, M.empty) }
     | str '->' str ':' str                 { case ((isPtp $1), (isPtp $3), not($1 == $3)) of
         		 		         (True, True, True)   -> (1, (Act ($1 , $3) $5), S.fromList [$1,$3], M.empty)
@@ -132,30 +132,30 @@ Blk : '(o)'                                { (0, Emp, S.empty, M.empty) }
                                                  (_,  True) -> myErr ($1 ++ " must not be in " ++ (show $3))
                                                  (False, _) -> myErr ("Bad name " ++ $1)
                                             }
-    | 'choose' exp '@' str '{' Branches '}' { let (p, f, sorts) = $2
-                                                  (cp, ptps, bs) = (updBranches p (f, sorts) $4)
-                                              in case (S.member p ptps) of
-                                                   False -> myErr (p ++ " is not in " ++ (show ptps))
-                                                   _ -> (cp, Bra (S.fromList $
-                                                            (L.foldr (\g -> \l -> l ++ (checkToken TokenBra g))
-                                                             []
-                                                             (L.map fst ([p] ++ $4))
-                                                            )
-                                                          ),
-                                                  ptps,
-                                                  bs
-                                                 )
+    | 'choose' exp '@' str '{' Branches '}' { case (S.member p ptps) of
+                                                False -> myErr (p ++ " is not in " ++ (show ptps))
+                                                _ -> (cp, Bra (S.fromList $
+                                                         (L.foldr (\g -> \l -> l ++ (checkToken TokenBra g))
+                                                          []
+                                                          (L.map fst ([p] ++ $4))
+                                                         )
+                                                       ),
+                                                      ptps,
+                                                      bs
+                                                     )
+                                                 where (p, f, sorts) = $2
+                                                       (cp, ptps, bs) = (updBranches p (f, sorts) $4)
                                             }
-  | 'repeat' G 'until' exp                  { let (p, f, sorts) = $4
-                                                  (cp, g, ptps, funs) = $2
-                                              in  case (S.member p ptps) of
-                                                    True -> (cp+1, Rep g p , ptps, catFun p (f, sorts, loopTags cp) funs)
-                                                    _ -> myErr ("Participant " ++ p ++ " is not among the loop's participants: " ++ (show $ toList $ ptps))
+  | 'repeat' G 'until' exp                  { case (S.member p ptps) of
+                                                 True -> (cp+1, Rep g p , ptps, catFun p (f, sorts, loopTags cp) funs)
+                                                 _ -> myErr ("Participant " ++ p ++ " is not among the loop's participants: " ++ (show $ toList $ ptps))
+                                                   where (p, f, sorts) = $4
+                                                         (cp, g, ptps, funs) = $2
                                             }
   | '{' G '}'                               { $2 }
 
 
-ptps :: [String]
+ptps :: { [Ptp] }
 ptps : str                      { if (isPtp $1) then [$1] else myErr ("Bad name " ++ $1) }
      | str ',' ptps             { if (isPtp $1)
                                   then (case $3 of
@@ -164,11 +164,11 @@ ptps : str                      { if (isPtp $1) then [$1] else myErr ("Bad name 
                                   else myErr ("Bad name " ++ $1)
                                 }
 
-exp :: (Ptp, Fname, [Sort])
-exp : str '(' ')' '@' str              { if (isPtp $5) hten ($5, $1, []) else myErr ("Bad name " ++ $5) }
-    | str '(' sorts ')' '@' str        { if (isPtp $6) hten ($5, $1, $3) else myErr ("Bad name " ++ $6) }
+exp :: { (Ptp, Fname, [Sort]) }
+exp : str '(' ')' '@' str              { if (isPtp $5) then ($5, $1, []) else myErr ("Bad name " ++ $5) }
+    | str '(' sorts ')' '@' str        { if (isPtp $6) then ($5, $1, $3) else myErr ("Bad name " ++ $6) }
 
-sorts :: [Sort]
+sorts :: { [Sort] }
 sorts : str                            { [$1] }
       | str sorts                      { $1 : $2 }
 
@@ -180,8 +180,12 @@ type CP = Int
 type Funs = M.Map Ptp [M.Map Fname ([Sort], Set Tag)]
 type GGparse = (CP, GG, Set Ptp, Funs)
 
+parseError :: [Token] -> a
+parseError err = case err of
+                    TokenErr s:_ -> myErr $ show s
+                    _            -> myErr (show err)
+
 data Token = TokenStr String
-  | TokenPtps [Ptp]
   | TokenEmp
   | TokenArr
   | TokenMAr
@@ -202,7 +206,7 @@ data Token = TokenStr String
   | TokenErr String
         deriving (Show)
 
-
+lexer :: String -> [Token]
 lexer s = case s of
     []                             -> []
     '(':'o':')':r                  -> TokenEmp : lexer r
@@ -225,7 +229,7 @@ lexer s = case s of
     'u':'n':'t':'i':'l':'\t':r     -> TokenUnl : (lexer r)
     'u':'n':'t':'i':'l':'\r':r     -> TokenUnl : (lexer r)
     '@':r                          -> TokenUnt : lexer r
-    ':'':':r                       -> TokenTag : lexer r
+    ':':':':r                       -> TokenTag : lexer r
     ':':r                          -> TokenSec : lexer r
     ';':r                          -> TokenSeq : lexer r
     ',':r                          -> TokenCom : lexer r
@@ -241,11 +245,6 @@ mytail l = if L.null l
            then l
            else tail l
 
-parseError :: [Token] -> a
-parseError err = case err of
-                    TokenErr s:_ -> myErr $ show s
-                    _            -> myErr (show err)
-
 catFun :: Ptp -> (Fname, [Sort], [Tag]) -> Funs -> Funs
 catFun p (f, sorts, tags) funs =
   M.insert p (M.fromList (f, (sorts, tags)):(if p € (M.keys funs) then funs!p else [])) funs
@@ -257,11 +256,11 @@ updBranches p (f, sorts) branches =
       funs = L.foldr (\m -> catFut p (f, sorts, M.keys branches) m) M.empty (M.elems aux)
 --      funs = L.foldr (\m -> M.insert p ((aux!p) ++ if p € (M.keys m) then m!p else []) m) M.empty (M.elems aux)
   in M.insert p (newf:fs) funs
-  where fs = if p € (M.keys funs)
-             then funs!p
-             else []
+     where fs = if p € (M.keys funs)
+                then (funs!p)
+                else []
 
-loopTags :: CP -> [Tags]
+loopTags :: CP -> [Tag]
 loopTags cp = ["enter__" ++ (show cp), "exit__" ++ (show cp)]
 
 -- checkToken 'flattens', parallel, branching, and sequential composition
