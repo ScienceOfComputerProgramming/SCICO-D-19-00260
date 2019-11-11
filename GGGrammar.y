@@ -95,7 +95,7 @@ import CFSM
 
 %%  -- Pointless line customary in yacc
 
-G :: { GGparse }
+G :: { CP -> GGparse }
 G : Blk                                 { $1 }
   | G '|' Blk  	     	        	{ (Par ((checkToken TokenPar $1)
                                                 ++ (checkToken TokenPar $3)),
@@ -106,78 +106,65 @@ G : Blk                                 { $1 }
                                             S.union (snd $1) (snd $3))
                                         }
 
-Branch :: { M.Map Tag GGparse }
-Branch : str '::' G                    { M.fromList ($1, $3) }
-
-Branches :: { M.Map Tag GGparse }
-Branches : Branch                      { $1 }
-         | Branches '+' Branch         { sumBranches $1 $3 }
-
-Blk :: { GGparse }
-Blk : '(o)'                                { (0, Emp, S.empty, M.empty) }
-    | str '->' str ':' str                 { case ((isPtp $1), (isPtp $3), not($1 == $3)) of
-        		 		         (True, True, True)   -> (1, (Act ($1 , $3) $5), S.fromList [$1,$3], M.empty)
+Blk :: { CP -> GGparse }
+Blk : '(o)'                                { \cp -> (cp, Emp, S.empty, M.empty) }
+    | str '->' str ':' str                 { \cp -> case ((isPtp $1), (isPtp $3), not($1 == $3)) of
+        		 		         (True, True, True)   -> (cp, (Act ($1 , $3) $5), S.fromList [$1,$3], M.empty)
 	        			         (True, False, True)  -> myErr ("Bad name " ++ $3)
-		        		         (True, True, False)  -> myErr ("A sender " ++ $3 ++ " cannot be also the receiver in an interaction")
+		        		         (True, True, False)  -> myErr ("Sender " ++ $3 ++ " cannot be also the receiver in an interaction")
 			        	         (_, False, False)    -> myErr ("Whaaat??? Sender " ++ $1 ++ " and receiver " ++ $3 ++ " are equal AND different!!!")
 				                 (_, True, True)      -> myErr ("Whaaat??? Sender " ++ $1 ++ " and receiver " ++ $3 ++ " are equal AND different!!!")
              				         (False, False, True) -> myErr ("Bad names " ++ $1 ++ " and " ++ $3)
 	        			         (False, _, False)    -> myErr ("Bad name " ++ $1 ++ " and sender and receiver must be different")
                                            }
-    | str '=>' ptps ':' str                { case ((isPtp $1), not(L.elem $1 $3)) of
+    | str '=>' ptps ':' str                { \cp -> case ((isPtp $1), not(L.elem $1 $3)) of
                                                  (True, False) -> case $3 of
                                                                      []   -> myErr ($1 ++ " cannot be empty")
-                                                                     s:[] -> (1, Act ($1 , s) $5, S.fromList([$1,s]), M.empty)
-                                                                     _    -> (1, Par (L.map (\s -> (Act ($1 , s) $5)) $3), S.fromList($1:$3), M.empty)
+                                                                     s:[] -> (cp, Act ($1 , s) $5, S.fromList([$1,s]), M.empty)
+                                                                     _    -> (cp, Par (L.map (\s -> (Act ($1 , s) $5)) $3), S.fromList($1:$3), M.empty)
                                                  (_,  True) -> myErr ($1 ++ " must not be in " ++ (show $3))
                                                  (False, _) -> myErr ("Bad name " ++ $1)
                                             }
-    | 'choose' exp '@' str '{' Branches '}' { case (S.member p ptps) of
-                                                False -> myErr (p ++ " is not in " ++ (show ptps))
-                                                _ -> (cp, Bra (S.fromList $
-                                                         (L.foldr (\g -> \l -> l ++ (checkToken TokenBra g))
-                                                          []
-                                                          (L.map fst ([p] ++ $4))
-                                                         )
-                                                       ),
-                                                      ptps,
-                                                      bs
-                                                     )
-                                                 where (p, f, sorts) = $2
-                                                       (cp, ptps, bs) = (updBranches p (f, sorts) $4)
+    | 'choose' exp '{' Branches '}'         { \cp -> let (p, fname, sorts) = $2
+                                                         (cp', tagMap) = $4 cp
+                                                         (ptps, funs) = (updBranches p (f, sorts) $4)
+                                                     in case (S.member p ptps) of
+                                                          False -> myErr (p ++ " is not in " ++ (show ptps))
+                                                          _ -> (cp'+1,
+                                                                Bra (M.fromList $ L.map (\(t,(_,g,_,_)) -> (t,g)) (M.toList tagMap)),
+                                                                ptps,
+                                                                funs
+                                                               )
                                             }
-  | 'repeat' G 'until' exp                  { case (S.member p ptps) of
-                                                 True -> (cp+1, Rep g p , ptps, catFun p (f, sorts, loopTags cp) funs)
-                                                 _ -> myErr ("Participant " ++ p ++ " is not among the loop's participants: " ++ (show $ toList $ ptps))
-                                                   where (p, f, sorts) = $4
-                                                         (cp, g, ptps, funs) = $2
+  | 'repeat' G 'until' exp                  { \cp -> let (p, fname, sorts) = $4
+                                                         (cp', g, ptps, funs) = $2 cp
+                                                     in case (S.member p ptps) of
+                                                          True -> (cp'+1, Rep g p , ptps, catFun p (fname, sorts, loopTags cp') funs)
+                                                          _ -> myErr ("Participant " ++ p ++ " is not among the loop's participants: " ++ (show $ toList $ ptps))
                                             }
   | '{' G '}'                               { $2 }
 
+Branch :: { CP -> (CP, M.Map Tag GGparse) }
+Branch : str '::' G                    { \cp -> let (cp', g, ptps, tagMap) = ($3 cp)
+                                                in M.fromList ($1, (cp', g, ptps, tagMap))
+                                       }
+
+Branches :: { CP -> (CP, M.Map Tag GGparse) }
+Branches : Branch                      { $1 }
+         | Branches '+' Branch         { sumBranches $1 $3 }
 
 ptps :: { [Ptp] }
 ptps : str                      { if (isPtp $1) then [$1] else myErr ("Bad name " ++ $1) }
-     | str ',' ptps             { if (isPtp $1)
-                                  then (case $3 of
-                                        [] ->  [$1]
-                                        (s:l) -> ($1:s:l))
-                                  else myErr ("Bad name " ++ $1)
-                                }
+     | ptps ',' str             { if (isPtp $3) then $1 ++ [$3] else myErr ("Bad name " ++ $1) }
 
 exp :: { (Ptp, Fname, [Sort]) }
-exp : str '(' ')' '@' str              { if (isPtp $5) then ($5, $1, []) else myErr ("Bad name " ++ $5) }
-    | str '(' sorts ')' '@' str        { if (isPtp $6) then ($5, $1, $3) else myErr ("Bad name " ++ $6) }
+exp : str '(' sorts ')' '@' str        { if (isPtp $6) then ($5, $1, $3) else myErr ("Bad name " ++ $6) }
 
 sorts :: { [Sort] }
-sorts : str                            { [$1] }
-      | str sorts                      { $1 : $2 }
+sorts : {- no sorts -}                 { [] }
+      | sorts str                      { $1 ++ [$2] }
 
 {
-type Tag = String
-type Fname = String
-type Sort = String
-type CP = Int
-type Funs = M.Map Ptp [M.Map Fname ([Sort], Set Tag)]
 type GGparse = (CP, GG, Set Ptp, Funs)
 
 parseError :: [Token] -> a
@@ -249,16 +236,17 @@ catFun :: Ptp -> (Fname, [Sort], [Tag]) -> Funs -> Funs
 catFun p (f, sorts, tags) funs =
   M.insert p (M.fromList (f, (sorts, tags)):(if p € (M.keys funs) then funs!p else [])) funs
 
-updBranches :: Ptp -> (Fname, [Sort]) -> M.Map Tag GGparse -> (CP, Set Ptp, Funs)
-updBranches p (f, sorts) branches =
-  let aux = L.foldr (\t l -> let (_, _, _, funs) = (branches!t) in funs ++ l) [] (M.keys branches)
-      newf = M.fromList (f, (sorts, M.keys branches))
-      funs = L.foldr (\m -> catFut p (f, sorts, M.keys branches) m) M.empty (M.elems aux)
---      funs = L.foldr (\m -> M.insert p ((aux!p) ++ if p € (M.keys m) then m!p else []) m) M.empty (M.elems aux)
-  in M.insert p (newf:fs) funs
-     where fs = if p € (M.keys funs)
-                then (funs!p)
-                else []
+updBranches :: (Ptp, Fname, [Sort]) -> M.Map Tag GGparse -> (Set Ptp, Funs)
+-- computes the participants occurring in branches and the updated map of call-back functions
+updBranches (p, fname, sorts) mapTag =
+  let (ptps, aux) = L.foldr
+                      (\t (ps,l) -> let (_, _, ps', funs) = mapTag!t in (S.union ps ps', funs ++ l))
+                      (S.empty, [])
+                      (M.keys tagMap)
+      newf = M.fromList (fname, (sorts, M.keys tagMap))
+      funs = L.foldr (\m -> catFut p (fname, sorts, M.keys tagMap) m) M.empty (M.elems aux)
+      fs = if p € (M.keys funs) then (funs!p) else []
+  in (ptps, M.insert p (newf:fs) funs)
 
 loopTags :: CP -> [Tag]
 loopTags cp = ["enter__" ++ (show cp), "exit__" ++ (show cp)]

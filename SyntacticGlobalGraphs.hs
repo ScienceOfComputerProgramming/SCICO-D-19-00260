@@ -15,6 +15,12 @@ import CFSM
 import DotStuff
 import Data.String.Utils(replace)
 
+type Tag = String
+type Fname = String
+type Sort = String
+type CP = Int
+type Funs = M.Map Ptp [M.Map Fname ([Sort], Set Tag)]
+
 -- A syntactic global graph is a set of nodes, a source, a sink, and a
 -- set of edges We assume that cp's will be automatically generated
 -- (uniquely) during parsing
@@ -22,7 +28,7 @@ data GG = Emp
         | Act Channel Message
         | LAct Channel Message
         | Par [GG]
-        | Bra (Set GG)
+        | Bra (M.Map Tag GG)
         | Seq [GG]
         | Rep GG Ptp
         deriving (Eq, Ord, Show)
