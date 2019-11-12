@@ -6,7 +6,7 @@
 
 module ErlanGG where
 
-import SyntacticGlobalGraphs
+import ToErlang
 import Misc
 import CFSM
 import Data.List as L
