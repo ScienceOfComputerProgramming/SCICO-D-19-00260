@@ -73,6 +73,9 @@ parser:
 	happy -a -i  SystemGrammar.y -o SystemParser.hs && $(ccmd) SystemParser.hs
 #K	happy -a -i  KGGrammar.y -o KGparser.hs && $(ccmd) KGparser.hs
 
+erlparser:
+	happy -a -i  GGGrammar.y -o GGParser.hs && $(ccmd) GGParser.hs
+
 config:
 	@echo "experiments\t"$(experimentsdir) > /tmp/$(cfgfile)
 	@echo "logfilename\t"$(logdir) >> /tmp/$(cfgfile)
