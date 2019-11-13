@@ -43,7 +43,7 @@ erlAtom pre s = case s of
 
 mkErl :: Int -> String -> [String] -> String
 mkErl ln op strs =
-  erlTuple [show ln, op, (show strs)]
+  rmQuotes $ erlTuple [show ln, op, (show strs)]
 
 gg2erl :: Int -> GG -> (String, Int)
 gg2erl ln _gg =
@@ -51,16 +51,16 @@ gg2erl ln _gg =
     Emp -> ("", ln)
     Act (s,r) m -> (mkErl ln "com" [erlAtom "ptp_" s, erlAtom "ptp_" r, erlAtom "msg_" m], 1+ln)
     Par ggs ->
-      let aux = \g -> \(ts, l) -> let (t', ln') = gg2erl l g in (ts ++ [t'], ln')
-          (threads, ln'') = L.foldr aux ([], 1+ln) ggs
+      let aux = \(ts, l) g -> let (t', ln') = gg2erl l g in (if t' == "" then ts else ts ++ [t'], ln')
+          (threads, ln'') = L.foldl aux ([], 1+ln) ggs
       in (mkErl ln "par" threads, ln'')
     Bra p fname sorts tagMap ->
-      let aux = \(t,g) (branches, l) -> let (branch, ln') = gg2erl l g in (branches ++ [erlTuple [t, branch]], ln')
-          (pairs, ln'') = L.foldr aux ([],1+ln) (M.toList tagMap)
+      let aux = \(branches, l) (t,g) -> let (branch, ln') = gg2erl l g in (branches ++ [erlTuple [t, branch]], ln')
+          (pairs, ln'') = L.foldl aux ([],1+ln) (M.toList tagMap)
       in (mkErl ln "bra" ([erlAtom "ptp_" p, fname, show sorts] ++ pairs), ln'')
     Seq ggs ->
-      let aux = \g (seqg, l) -> let (next, ln') = gg2erl l g in (seqg ++ [next], ln')
-          (seqList, ln'') = L.foldr aux ([],1+ln) ggs
+      let aux = \(seqg, l) g -> let (next, ln') = gg2erl l g in (if next == "" then seqg else seqg ++ [next], ln')
+          (seqList, ln'') = L.foldl aux ([],1+ln) ggs
       in (mkErl ln "seq" seqList, ln'')
     Rep p fname sorts gg ->
       let (body, ln') = gg2erl (1+ln) gg
