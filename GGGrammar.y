@@ -266,11 +266,11 @@ lexer s = case s of
     'r':'e':'p':'e':'a':'t':' ':r  -> TokenRep : (lexer r)
     'r':'e':'p':'e':'a':'t':'\n':r -> TokenRep : (lexer r)
     'r':'e':'p':'e':'a':'t':'\t':r -> TokenRep : (lexer r)
-    'u':'n':'t':'i':'l':' ':r      -> TokenUnl : (lexer r)
+    'u':'n':'t':'i':'l':r          -> TokenUnl : (lexer r)
     'u':'n':'t':'i':'l':'\t':r     -> TokenUnl : (lexer r)
     'u':'n':'t':'i':'l':'\r':r     -> TokenUnl : (lexer r)
     '@':r                          -> TokenAt : lexer r
-    ':':':':r                       -> TokenTag : lexer r
+    ':':':':r                      -> TokenTag : lexer r
     ':':r                          -> TokenSec : lexer r
     ';':r                          -> TokenSeq : lexer r
     ',':r                          -> TokenCom : lexer r
