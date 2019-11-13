@@ -86,12 +86,13 @@ import CFSM
   "}"	        { TokenCurlyc   }
   "choose"      { TokenSel      }
   "repeat"      { TokenRep      }
-  "until"       { TokenUnl      }
+  "until"       { TokenUnt      }
 
 %right "|"
 %right "+"
 %right ";"
 %right ","
+%left "until"
 
 %%  -- Pointless line customary in yacc
 
@@ -234,7 +235,7 @@ data Token = TokenStr String
   | TokenBra
   | TokenSel
   | TokenRep
-  | TokenUnl
+  | TokenUnt
   | TokenAt
   | TokenTag
   | TokenSec
@@ -266,9 +267,9 @@ lexer s = case s of
     'r':'e':'p':'e':'a':'t':' ':r  -> TokenRep : (lexer r)
     'r':'e':'p':'e':'a':'t':'\n':r -> TokenRep : (lexer r)
     'r':'e':'p':'e':'a':'t':'\t':r -> TokenRep : (lexer r)
-    'u':'n':'t':'i':'l':r          -> TokenUnl : (lexer r)
-    'u':'n':'t':'i':'l':'\t':r     -> TokenUnl : (lexer r)
-    'u':'n':'t':'i':'l':'\r':r     -> TokenUnl : (lexer r)
+    'u':'n':'t':'i':'l':' ':r      -> TokenUnt : (lexer r)
+    'u':'n':'t':'i':'l':'\n':r     -> TokenUnt : (lexer r)
+    'u':'n':'t':'i':'l':'\t':r     -> TokenUnt : (lexer r)
     '@':r                          -> TokenAt : lexer r
     ':':':':r                      -> TokenTag : lexer r
     ':':r                          -> TokenSec : lexer r
