@@ -4,15 +4,16 @@
 
 -- A very basic grammar and parser for the textual editing of global
 -- graphs. The grammar is a revised version of the one used in the
--- ICE16
+-- ICE16 and is is geared towards the generation of executable code.
+-- 
 --
 --    G ::= (o)
 --       |  P -> P : M
 --       |  P => P, ..., P : M
 --	 |  G | G
 --       |  G ; G
---       |  choose exp @ P { Brc }
---       |  repeat { G } until exp @ P
+--       |  choose f(x y ...) @ P { Brc }
+--       |  repeat G until f(x y ...) @ P
 --       |  { G }
 --
 --    Brc   ::= tag :: G | tag :: G + Brc
@@ -75,7 +76,7 @@ import CFSM
   "|"	        { TokenPar      }
   "+"	        { TokenBra      }
   ";"	        { TokenSeq      }
-  "@"   	{ TokenUnt      }
+  "@"   	{ TokenAt      }
   ":"	        { TokenSec      }
   "::"	        { TokenTag      }
   "("	        { TokenFno      }
@@ -85,7 +86,7 @@ import CFSM
   "}"	        { TokenCurlyc   }
   "choose"      { TokenSel      }
   "repeat"      { TokenRep      }
-  "until"       { TokenUnt      }
+  "until"       { TokenUnl      }
 
 %right "|"
 %right "+"
@@ -234,7 +235,7 @@ data Token = TokenStr String
   | TokenSel
   | TokenRep
   | TokenUnl
-  | TokenUnt
+  | TokenAt
   | TokenTag
   | TokenSec
   | TokenSeq
@@ -268,7 +269,7 @@ lexer s = case s of
     'u':'n':'t':'i':'l':' ':r      -> TokenUnl : (lexer r)
     'u':'n':'t':'i':'l':'\t':r     -> TokenUnl : (lexer r)
     'u':'n':'t':'i':'l':'\r':r     -> TokenUnl : (lexer r)
-    '@':r                          -> TokenUnt : lexer r
+    '@':r                          -> TokenAt : lexer r
     ':':':':r                       -> TokenTag : lexer r
     ':':r                          -> TokenSec : lexer r
     ';':r                          -> TokenSeq : lexer r
