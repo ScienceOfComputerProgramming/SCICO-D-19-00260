@@ -57,7 +57,7 @@
 { -- Haskell header of the parser
 module GGParser where
 import ErlangBridge
-import Data.Set as S (empty, singleton, intersection, union, unions, difference, fromList, difference, toList, member, foldr, Set)
+import Data.Set as S (empty, singleton, union, fromList, toList, member, Set)
 import Data.List as L
 import qualified Data.Map as M -- (keys, empty, insert, Map, fromList, toList, elems)
 import Misc
@@ -152,13 +152,13 @@ Blk : "(o)"
       
     | "choose" exp "{" Branches "}"
       { \cp ->
-          let (p, fname, sorts) = $2
+          let (p, fID, sorts) = $2
               (cp', tagMap) = ($4 cp)
-              (ptps, funs) = (updBranches (p, fname, sorts) tagMap)
+              (ptps, funs) = (updBranches (p, fID, sorts) tagMap)
           in case (S.member p ptps) of
                False -> myErr (p ++ " is not in " ++ (show ptps))
                _ -> (cp'+1,
-                     Bra p fname sorts (M.fromList $ L.map (\(t,(_,g,_,_)) -> (t,g)) (M.toList tagMap)),
+                     Bra p fID sorts (M.fromList $ L.map (\(t,(_,g,_,_)) -> (t,g)) (M.toList tagMap)),
                      ptps,
                      funs
                     )
@@ -166,10 +166,10 @@ Blk : "(o)"
       
   | "repeat" G "until" exp
     { \cp ->
-        let (p, fname, sorts) = $4
+        let (p, fID, sorts) = $4
             (cp', g, ptps, funs) = ($2 cp)
         in case (S.member p ptps) of
-          True -> (cp'+1, Rep p fname sorts g, ptps, addFun p (fname, sorts, loopTags cp') funs)
+          True -> (cp'+1, Rep p fID sorts g, ptps, addFun p (fID, sorts, loopTags cp') funs)
           _ -> myErr ("Participant " ++ p ++ " is not among the loop's participants: " ++ (show $ toList $ ptps))
     }
 
@@ -287,13 +287,11 @@ mytail l = if L.null l
            then l
            else tail l
 
-funsOf :: Ptp -> Funs -> [M.Map Fname ([Sort], Set Tag)]
+funsOf :: Ptp -> Funs -> [(Fname, [Sort], Set Tag)]
 funsOf p funs = if p € (M.keys funs) then ((M.!) funs p) else []
 
-addFun :: Ptp -> (Fname, [Sort], [Tag]) -> Funs -> Funs
-addFun p (f, sorts, tags) funs =
-  let m = M.fromList [(f, (sorts, S.fromList tags))]
-  in M.insert p (m:(funsOf p funs)) funs
+addFun :: Ptp -> (Fname, [Sort], Set Tag) -> Funs -> Funs
+addFun p fun funs = M.insert p (fun:(funsOf p funs)) funs
 
 mergeFuns :: Funs -> Funs -> Funs
 mergeFuns f g =
@@ -304,16 +302,16 @@ mergeFuns f g =
 
 updBranches :: (Ptp, Fname, [Sort]) -> M.Map Tag GGparse -> (Set Ptp, Funs)
 -- computes the participants occurring in branches and the updated map of call-back functions
-updBranches (p, fname, sorts) tagMap =
+updBranches (p, fID, sorts) tagMap =
   let (ptps, funs) = L.foldr
                       (\t (ps, funs') -> let (_, _, ps', funs) = ((M.!) tagMap t) in (S.union ps ps', mergeFuns funs funs'))
                       (S.empty, M.empty)
                       (M.keys tagMap)
-      newf = M.fromList [(fname, (sorts, S.fromList $ M.keys tagMap))]
+      newf = (fID, sorts, S.fromList $ M.keys tagMap)
   in (ptps, M.insert p (newf:(funsOf p funs)) funs)
 
-loopTags :: CP -> [Tag]
-loopTags cp = ["enter__" ++ (show cp), "exit__" ++ (show cp)]
+loopTags :: CP -> Set Tag
+loopTags cp = S.fromList ["enter__" ++ (show cp), "exit__" ++ (show cp)]
 
 -- checkToken 'flattens', parallel and sequential composition
 checkToken :: Token -> GG -> [GG]

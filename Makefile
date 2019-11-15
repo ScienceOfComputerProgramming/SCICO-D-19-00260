@@ -75,6 +75,7 @@ parser:
 
 erlparser:
 	happy -a -i  GGGrammar.y -o GGParser.hs && $(ccmd) GGParser.hs
+	ghc sgg2erlAST.hs 
 
 config:
 	@echo "experiments\t"$(experimentsdir) > /tmp/$(cfgfile)

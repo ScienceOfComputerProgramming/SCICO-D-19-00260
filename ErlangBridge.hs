@@ -18,7 +18,7 @@ type Tag = String
 type Fname = String
 type Sort = String
 type CP = Int
-type Funs = M.Map Ptp [M.Map Fname ([Sort], Set Tag)]
+type Funs = M.Map Ptp [(Fname, [Sort], Set Tag)]
 
 -- A syntactic global graph is a set of nodes, a source, a sink, and a
 -- set of edges We assume that cp's will be automatically generated
@@ -32,9 +32,14 @@ data GG = Emp
         deriving (Eq, Ord, Show)
 
 erlTuple :: [String] -> String
-erlTuple tuple = case tuple of
+erlTuple fields = case fields of
   [] -> ""
-  _  -> "{ " ++ (mkSep tuple ", ") ++ " }"
+  _  -> "{ " ++ (mkSep fields ", ") ++ " }"
+
+erlList :: [String] -> String
+erlList els = case els of
+  [] -> "[]"
+  _  -> "[ " ++ (mkSep els ", ") ++ " ]"
 
 erlAtom :: String -> String -> String
 erlAtom pre s = case s of
@@ -50,20 +55,27 @@ gg2erl ln _gg =
   let (erl,cp) =
         case _gg of
           Emp -> ("", ln)
-          Act (s,r) m -> (mkErl ln "com" [erlAtom "ptp_" s, erlAtom "ptp_" r, erlAtom "msg_" m], 1+ln)
+          Act (s,r) m ->
+            (mkErl ln "com" [erlAtom "ptp_" s, erlAtom "ptp_" r, erlAtom "msg_" m], 1+ln)
           Par ggs ->
-            let aux = \(ts, l) g -> let (t', ln') = gg2erl l g in (if t' == "" then ts else ts ++ [t'], ln')
+            let aux = \(ts, l) g ->
+                  let (t', ln') = gg2erl l g
+                  in (if t' == "" then ts else ts ++ [t'], ln')
                 (threads, ln'') = L.foldl aux ([], 1+ln) ggs
             in (mkErl ln "par" threads, ln'')
           Bra p fname sorts tagMap ->
-            let aux = \(branches, l) (t,g) -> let (branch, ln') = gg2erl l g in (branches ++ [erlTuple [t, branch]], ln')
+            let aux = \(branches, l) (t,g) ->
+                  let (branch, ln') = gg2erl l g
+                  in (branches ++ [erlTuple [t, branch]], ln')
                 (pairs, ln'') = L.foldl aux ([],1+ln) (M.toList tagMap)
-            in (mkErl ln "bra" ([erlAtom "ptp_" p, fname, show sorts] ++ pairs), ln'')
+            in (mkErl ln "bra" ([erlAtom "ptp_" p, erlAtom "dcf_" fname, show sorts] ++ pairs), ln'')
           Seq ggs ->
-            let aux = \(seqg, l) g -> let (next, ln') = gg2erl l g in (if next == "" then seqg else seqg ++ [next], ln')
+            let aux = \(seqg, l) g ->
+                  let (next, ln') = gg2erl l g
+                  in (if next == "" then seqg else seqg ++ [next], ln')
                 (seqList, ln'') = L.foldl aux ([],1+ln) ggs
             in (mkErl ln "seq" seqList, ln'')
           Rep p fname sorts gg ->
             let (body, ln') = gg2erl (1+ln) gg
-            in (mkErl ln "rec" ([erlAtom "ptp_" p, fname, show sorts] ++ [body]), ln')
+            in (mkErl ln "rec" ([erlAtom "ptp_" p, erlAtom "dcf_" fname, show sorts] ++ [body]), ln')
   in (rmQuotes erl, cp)
