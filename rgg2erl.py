@@ -135,6 +135,10 @@ main() ->
 .
 """
 
+debugMsg(args.debug, SGG, ' '.join(callsgg))
+sggtime = time.time()
+subprocess.check_call(callsgg)
+
 if args.rg:
     with open(dir + "/reg.txt") as f:
         test_ds = f.readlines()

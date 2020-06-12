@@ -5,9 +5,11 @@ from os import listdir
 from os.path import isfile, join
 import glob
 import gi
+import fcntl
+import subprocess
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gdk
+from gi.repository import Gtk, Gdk, GObject
 import subprocess
 import networkx as nx
 import utils
@@ -32,10 +34,13 @@ class Workspace:
         self.termination = None
         self.projections = None
 
+    def get_sgg_filename(self):
+        return os.path.basename(self.sgg_absolute_path).split('.')[0]
+
     def get_root_folder(self):
         return join(
             os.path.dirname(self.sgg_absolute_path),
-            os.path.basename(self.sgg_absolute_path).split('.')[0]
+            self.get_sgg_filename()
         )
 
     def gen_choreography_graphml(self):
@@ -401,6 +406,7 @@ UI_INFO = """
     <menu action='GenerateMenu'>
       <menuitem action='FileGenSemantics' />
       <menuitem action='Projection' />
+      <menuitem action='ErlangCode' />
       <menuitem action='FileCosts' />
     </menu>
     <menu action='AnalysesMenu'>
@@ -419,6 +425,99 @@ UI_INFO = """
   </toolbar>
 </ui>
 """
+
+
+def unblock_fd(stream):
+    fd = stream.fileno()
+    fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+class StreamTextBuffer(Gtk.TextBuffer):
+    '''TextBuffer read command output syncronously'''
+    def __init__(self):
+        Gtk.TextBuffer.__init__(self)
+        self.IO_WATCH_ID = tuple()
+
+    def bind_subprocess(self, proc):
+        unblock_fd(proc.stdout)
+        watch_id_stdout = GObject.io_add_watch(
+            channel   = proc.stdout,
+            priority_ = GObject.IO_IN,
+            condition = self.buffer_update,
+            # func      = lambda *a: print("func") # when the condition is satisfied
+            # user_data = # user data to pass to func
+        )
+
+        unblock_fd(proc.stderr)
+        watch_id_stderr = GObject.io_add_watch(
+            channel   = proc.stderr,
+            priority_ = GObject.IO_IN,
+            condition = self.buffer_update,
+            # func      = lambda *a: print("func") # when the condition is satisfied
+            # user_data = # user data to pass to func
+        )
+
+        self.IO_WATCH_ID = (watch_id_stdout, watch_id_stderr)
+        return self.IO_WATCH_ID
+
+
+    def buffer_update(self, stream, condition):
+        self.insert_at_cursor(stream.read())
+        return True # otherwise isn't recalled
+
+
+class ErlangDialog(Gtk.Dialog):
+    def __init__(self, parent):
+        Gtk.Dialog.__init__(
+            self,
+            "Erlang output",
+            parent,
+            Gtk.DialogFlags.MODAL,
+            buttons=(
+            ),
+        )
+
+        self.filename = parent.workspace.get_sgg_filename()
+        self.set_default_size(800, 600)
+
+        self.create_textview()
+        self.run_code()
+        self.show_all()
+
+
+    def create_textview(self):
+        box = self.get_content_area()
+        scrolledwindow = Gtk.ScrolledWindow()
+        scrolledwindow.set_hexpand(True)
+        scrolledwindow.set_vexpand(True)
+        box.add(scrolledwindow)
+
+        self.buff = StreamTextBuffer()
+        self.textview = Gtk.TextView.new_with_buffer(self.buff)
+        scrolledwindow.add(self.textview)
+
+        self.textview.set_property('editable', False)
+
+    def run_code(self):
+        def execute(widget):
+            if len(self.buff.IO_WATCH_ID):
+                for id_ in self.buff.IO_WATCH_ID:
+                    # remove subprocess io_watch if not removed will
+                    # creates lots of cpu cycles, when process dies
+                    GObject.source_remove(id_)
+                self.buff.IO_WATCH_ID = tuple()
+                execute.proc.terminate() # send SIGTERM
+                return
+
+            execute.proc = subprocess.Popen(
+                ['python3', 'erlrun.py', self.filename],
+                stdout = subprocess.PIPE,
+                stderr = subprocess.PIPE,
+                universal_newlines=True,
+            )
+
+            self.buff.bind_subprocess(execute.proc)
+        execute(self)
 
 
 class MainWindow(Gtk.Window):
@@ -573,6 +672,12 @@ class MainWindow(Gtk.Window):
         )
         action_project.connect("activate", self.on_menu_project)
         action_group.add_action_with_accel(action_project, "<Control>p")
+
+        action_gencode = Gtk.Action(
+            "ErlangCode", "Erlang", "Generate Erlang Code", None
+        )
+        action_gencode.connect("activate", self.on_menu_gen_code)
+        action_group.add_action_with_accel(action_gencode, "<Control>g")
 
         action_analysesmenu = Gtk.Action("AnalysesMenu", "Analyses", None, None)
         action_group.add_action(action_analysesmenu)
@@ -846,6 +951,40 @@ class MainWindow(Gtk.Window):
         for p in self.workspace.projections:
             p_list = self.store.append(proj_list, ["projection", p, p])
             self.tree_mapping[("projection", p)] = p
+
+    def on_menu_gen_code(self, widget):
+        dialog = ErlangDialog(self)
+        response = dialog.run()
+        dialog.close()
+        # self.gen_erlang_machine()
+        # self.gen_erlang_support_files()
+        # self.execute_machines()
+
+    def gen_erlang_support_files(self):
+        name = self.workspace.get_sgg_filename()
+        os.system(f'erlc -o {name} aux/erlang/aux.erl ')
+        os.system(f'erlc -o {name} aux/erlang/rgg_support.erl ')
+        os.system(f'erlc -o {name} aux/erlang/gg2erl.erl ')
+        os.system(f'erlc -o {name} {name}/{name}.erl ')
+
+    def gen_erlang_machine(self):
+        # output_folder = self.workspace.get_sgg_filename()
+        name = self.workspace.get_sgg_filename()
+        output_folder = '.'
+        path = self.workspace.sgg_absolute_path
+        os.system(f'python3 rgg2erl.py -rg {name} -df png --sloppy --dir {output_folder} {path}')
+        
+    def execute_machines(self):
+        name = self.workspace.get_sgg_filename()
+        subprocess.run(f'erl -eval "{name}:main()" -s init stop',
+            cwd=f'{name}',
+            shell=True)
+        subprocess.run(f'erlc {name}_{name}.erl',
+            cwd=f'{name}',
+            shell=True)
+        subprocess.run(f'erl -eval "{name}_{name}:main()" -s init stop',
+            cwd=f'{name}',
+            shell=True)
 
     def change_main_view(self, widget):
         old_views = self.scrolled_window.get_children()
