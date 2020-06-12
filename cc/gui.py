@@ -462,7 +462,7 @@ class StreamTextBuffer(Gtk.TextBuffer):
 
 
     def buffer_update(self, stream, condition):
-        self.insert_at_cursor(stream.read())
+        self.insert(self.get_end_iter(),stream.read())
         return True # otherwise isn't recalled
 
 
@@ -954,11 +954,10 @@ class MainWindow(Gtk.Window):
 
     def on_menu_gen_code(self, widget):
         dialog = ErlangDialog(self)
+        self.gen_erlang_machine()
+        self.gen_erlang_support_files()
         response = dialog.run()
         dialog.close()
-        # self.gen_erlang_machine()
-        # self.gen_erlang_support_files()
-        # self.execute_machines()
 
     def gen_erlang_support_files(self):
         name = self.workspace.get_sgg_filename()
@@ -973,18 +972,6 @@ class MainWindow(Gtk.Window):
         output_folder = '.'
         path = self.workspace.sgg_absolute_path
         os.system(f'python3 rgg2erl.py -rg {name} -df png --sloppy --dir {output_folder} {path}')
-        
-    def execute_machines(self):
-        name = self.workspace.get_sgg_filename()
-        subprocess.run(f'erl -eval "{name}:main()" -s init stop',
-            cwd=f'{name}',
-            shell=True)
-        subprocess.run(f'erlc {name}_{name}.erl',
-            cwd=f'{name}',
-            shell=True)
-        subprocess.run(f'erl -eval "{name}_{name}:main()" -s init stop',
-            cwd=f'{name}',
-            shell=True)
 
     def change_main_view(self, widget):
         old_views = self.scrolled_window.get_children()
